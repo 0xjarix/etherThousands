@@ -1,66 +1,44 @@
-## Foundry
+## Lottery EtherThousands that follows the exact same rules of the EuroMillions
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+# How is it played?
 
-Foundry consists of:
+- A player must choose 7 numbers:
+  - 5 numbers from a grid of 50 numbers (1 -> 50)
+  - 2 numbers(stars) from a grid of 12 numbers (1 -> 12)
+- You win the jackpot if you have the 5 numbers you chose and the 2 stars
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+# How is the jackpot set?
 
-## Documentation
+- The minimum jackpot is set at 17M euros in our case it will be 17K ether
+- As long as there is no winner the jackpot keeps on growing raffle after raffle till it reaches 250K ether(the ceiling)
 
-https://book.getfoundry.sh/
+# How to participate in a lottery?
 
-## Usage
+- There are 2 ways to play:
+  - Single-chance: 1 simple grid, where you choose 5 numbers (1 -> 50) and 2 stars (1 -> 12): 25
+  - Multi-chance:
+    - Pack of 10 multi-grids, you can either choose 1, 2, 5 or 10.
+    - Each part is at 50 ether. (1 -> 50) (2 -> 100) (5 -> 250) (10 -> 500)
+    - Each of the multi-grid contains 66 combinations:
+      - 5 numbers (1 -> 50) that remain the same for all the grids of the multigrid
+      - All the possible combinations of 2 stars (1 -> 12). For each grid of the multigrid at least one of the stars are different (12 choose 2 == 66)
+- You can choose the numbers by yourself or generate them randomly with "Flash" this works for both single-chance and multi-chance
 
-### Build
+# How is the winner picked?
 
-```shell
-$ forge build
-```
+- When the right time comes to pick a winner, if the pot is >= 17K ether, we check if someone has won the jackpot.
+- If there is no winner, the pot is added to the pot of the next lottery.
+- This process continues untill we reach 250K ether(the ceiling)
+- If we reach 250K ether and there is still no winner, The pot is split between the closest to a win
 
-### Test
+# What do we need?
 
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+- A lottery contract
+- Participants(mapping(address => struct))
+- bool to indicate whether the participant generates the numbers randomly(flash = true) or chooses them (flash = false) (variable in a function)
+- struct {
+  numbers (list of list)
+  stars (list of list)
+  simple/multichance(enum)
+  }
+- enum for the state of the lottery
