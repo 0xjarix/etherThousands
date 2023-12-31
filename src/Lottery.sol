@@ -115,7 +115,7 @@ contract Lottery {
         bool isOpen = s_raffleState == RaffleState.OPEN;
         bool hasPlayers = s_players.length > 0;
         bool hasEnoughETH = address(this).balance >= MINIMUM_JACKPOT;
-        upkeepNeeded = (timeHasPassed && isOpen && hasPlayers && hasEnoughETH) || maxJackpotReachedAndStillNoWinner;
+        upkeepNeeded = (timeHasPassed && isOpen && hasPlayers && hasEnoughETH) || s_maxJackpotReachedAndStillNoWinner;
         return (upkeepNeeded, "0x0");
     }
 
@@ -158,10 +158,23 @@ contract Lottery {
                 numbersAndStars[i][j] = randomWords[i * 5 + j] % 50 + 1;
             }
         }
-        address payable[] winners = pickWinner();
+        address payable[] winners;
+        if (address(this).balance < MAXIIMUM_JACKPOT)
+            winners = pickWinnerBeforeMax();
+        else{
+            if(s_numberOfDrawsSinceMaxJackpotReached == 0)
+                s_maxJackpotReachedAndStillNoWinner = true;
+            if (s_numberOfDrawsSinceMaxJackpotReached < 5) {
+                s_numberOfDrawsSinceMaxJackpotReached++;
+                return;
+            }
+            winners = pickWinnerAfterMax();
+        }
         s_raffleState = RaffleState.OPEN;
         s_players = new address payable[](0);
         s_lastTimeStamp = block.timestamp;
+        s_numberOfDrawsSinceMaxJackpotReached = 0;
+        s_maxJackpotReachedAndStillNoWinner = false;
         if (winners.length != 0) {
             s_recentWinners = winners;
             // Interaction with other contracts (external calls) should be done last to avoid reentrancy attacks
@@ -176,54 +189,66 @@ contract Lottery {
         }
     }
 
-    function pickWinner() internal returns (address payable[] winners){
+    function pickWinnerAfterMax() internal returns (address payable[] winners){
         uint256 nbParticipants = s_players.length;
-        if (address(this).balance < MAXIIMUM_JACKPOT) {
-            for (uint256 i = 0; i < nbParticipants; i++) {
-                Tuple[] memory grids = s_players[i];
-                for (uint256 j = 0; j < grids.length; j++) {
-                    Tuple memory grid = grids[j];
-                    uint8[5] memory numbers = grid.numbers;
-                    bool valid = true;
-                    for (uint8 k = 0; k < 5; k++) {
-                        if (numbers[k] != numbersAndStars[0][k]) {
+        for (uint256 i = 0; i < nbParticipants; i++) {
+            Tuple[] memory grids = s_players[i];
+            for (uint256 j = 0; j < grids.length; j++) {
+                Tuple memory grid = grids[j];
+                uint8[5] memory numbers = grid.numbers;
+                bool valid = true;
+                for (uint8 k = 0; k < 5; k++) {
+                    if (numbers[k] != numbersAndStars[0][k]) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid) {
+                    uint8[2] memory stars = grid.stars;
+                    for (uint8 k = 0; k < 2; k++) {
+                        if (stars[k] != numbersAndStars[1][k]) {
                             valid = false;
                             break;
                         }
                     }
                     if (valid) {
-                        uint8[2] memory stars = grid.stars;
-                        for (uint8 k = 0; k < 2; k++) {
-                            if (stars[k] != numbersAndStars[1][k]) {
-                                valid = false;
-                                break;
-                            }
-                        }
-                        if (valid) {
-                            winners.push(payable(s_players[i]));
-                        }
+                        winners.push(payable(s_players[i]));
                     }
                 }
             }
-            return winners;
         }
-        else {
-           if (s_maxJackpotReachedAndStillNoWinner) {
-               s_numberOfDrawsSinceMaxJackpotReached++;
-               if (s_numberOfDrawsSinceMaxJackpotReached == 5) {
-                   s_maxJackpotReachedAndStillNoWinner = false;
-                   s_numberOfDrawsSinceMaxJackpotReached = 0;
-                   // looping through all the players
-               }
-               return winners;
-           }
-           else {
-               s_maxJackpotReachedAndStillNoWinner = true;
-               s_numberOfDrawsSinceMaxJackpotReached = 0;
-               return winners;
-           }
-            
+        return winners;
+    }
+
+    function pickWinnerBeforeMax() internal returns (address payable[] winners){
+        uint256 nbParticipants = s_players.length;
+        for (uint256 i = 0; i < nbParticipants; i++) {
+            Tuple[] memory grids = s_players[i];
+            for (uint256 j = 0; j < grids.length; j++) {
+                Tuple memory grid = grids[j];
+                uint8[5] memory numbers = grid.numbers;
+                bool valid = true;
+                for (uint8 k = 0; k < 5; k++) {
+                    if (numbers[k] != numbersAndStars[0][k]) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid) {
+                    uint8[2] memory stars = grid.stars;
+                    for (uint8 k = 0; k < 2; k++) {
+                        if (stars[k] != numbersAndStars[1][k]) {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (valid) {
+                        winners.push(payable(s_players[i]));
+                    }
+                }
+            }
         }
+        return winners;
     }
 }
 
