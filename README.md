@@ -1,4 +1,4 @@
-## Lottery EtherThousands that follows to certain extents the rules of the EuroMillions
+## Lottery EtherThousands that follows the rules of the EuroMillions
 
 # How is it played?
 
