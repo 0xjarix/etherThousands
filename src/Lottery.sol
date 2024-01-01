@@ -3,22 +3,28 @@ pragma solidity ^0.8.19;
 
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
-
-contract Lottery {
+import {AutomationCompatibleInterface} from "@chainlink/contracts/src/v0.8/interfaces/AutomationCompatibleInterface.sol";
+contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     // errors
     error Lottery__PlayerForgotGrid();
     error Lottery__PlayerCannotRandomizeWhileProvidingNumbers();
     error Lottery__LotteryNotOpen();
     error Lottery__PlayerInputWrongGridFormat();
     error Lottery__TransferFailed();
-
+    error Lottery__NotEnoughEthSent();
+    error Lottery__NotEnoughTimePassed();
+    error Lottery__UpkeepNotNeed(
+        uint256 balance,
+        uint256 playersLength,
+        uint256 raffleState
+    );
     // enum
     enum LotteryState { OPEN, CALCULATING }
 
     // struct
     struct Tuple {
-        uint8[5] numbers;
-        uint8[2] stars;
+        uint8[] numbers;
+        uint8[] stars;
     }
 
     // constants
@@ -37,19 +43,23 @@ contract Lottery {
     mapping (address => Tuple[]) private s_players;
     LotteryState public s_lotteryState;
     uint256 private s_lastTimeStamp;
-    address[] private s_recentWinner;
+    address payable[] private s_recentWinners;
     bool s_maxJackpotReachedAndStillNoWinner;
     uint8 s_numberOfDrawsSinceMaxJackpotReached;
+    uint256 private s_nbParticipants;
+    Tuple[] s_grids;
+    address payable[] s_playersAddress;
+    address payable[] s_winners;
     // events
     event EnteredLottery(address player);
-    event PickedWinners(address[] indexed winner);
+    event PickedWinners(address payable [] indexed winner);
 
     // constructor
     constructor(
         address vrfCoordinator,
         bytes32 gasLane,
         uint64 subscriptionId,
-        uint32 callbackGasLimit) 
+        uint32 callbackGasLimit) VRFConsumerBaseV2(vrfCoordinator)
     {
         i_interval = 3 days;
         s_lastTimeStamp = block.timestamp;
@@ -60,12 +70,17 @@ contract Lottery {
         s_lotteryState = LotteryState.OPEN;
     }
     // functions
-     function enterLottery(bool gridState, uint8[][2] numbersAndStars) external payable {
+     function enterLottery(bool gridState, uint8[][2] memory numbersAndStars) external payable {
         if (s_lotteryState != LotteryState.OPEN)
             revert Lottery__LotteryNotOpen();
-            
-        if (msg.value < 25 + gridState * 25) // gridState == 0 means the grid is simple
-            revert Raffle__NotEnoughEthSent();
+        if (gridState) {
+            if (msg.value < 50)
+                revert Lottery__NotEnoughEthSent();
+        }
+        else {
+            if (msg.value < 25)
+                revert Lottery__NotEnoughEthSent();
+        }
 
         if (numbersAndStars.length == 0) 
             revert Lottery__PlayerForgotGrid();
@@ -73,25 +88,29 @@ contract Lottery {
         if (numbersAndStars[0].length != 5 || numbersAndStars[1].length != 2)
             revert Lottery__PlayerInputWrongGridFormat();
 
-        Tuple[] grids;
         for (uint8 i = 0; i < 2; i++) {
-            for (uint8 j = 0; j < numbersAndStars[i]; j++) {
+            for (uint8 j = 0; j < numbersAndStars[i].length; j++) {
                 if (numbersAndStars[i][j] < 1 || numbersAndStars[0][i] > 50)
                     revert Lottery__PlayerInputWrongGridFormat();
             }
         }
-        if (!gridState) {
-            grids[0].numbers = numbersAndStars[0];
-            grids[0].stars = numbersAndStars[1];
-        }
-        else {
+        if (gridState) {
             for (uint8 i = 1; i < 12; i++) {
                 for (uint8 j = i + 1; j < 13; j++) {
-                    grids.push(Tuple(numbersAndStars[0], [i, j]));
+                    uint8[] memory stars;
+                    stars[0] = i;
+                    stars[1] = j;
+                    s_grids.push(Tuple(numbersAndStars[0], stars));
                 }
             }
+            s_players[msg.sender] = s_grids;
         }
-        s_players[msg.sender] = grids;
+        else {
+            s_grids.push(Tuple(numbersAndStars[0], numbersAndStars[1]));
+            s_players[msg.sender] = s_grids;
+        }
+        s_nbParticipants++;
+        s_playersAddress.push(payable(msg.sender));
         emit EnteredLottery(msg.sender);
     }
 
@@ -107,13 +126,13 @@ contract Lottery {
     function checkUpkeep(
         bytes memory /* checkData */
     )
-        internal
-        view
+        public
+        view override
         returns (bool upkeepNeeded, bytes memory /* performData */)
     {
         bool timeHasPassed = block.timestamp - s_lastTimeStamp >= i_interval;
-        bool isOpen = s_raffleState == RaffleState.OPEN;
-        bool hasPlayers = s_players.length > 0;
+        bool isOpen = s_lotteryState == LotteryState.OPEN;
+        bool hasPlayers = s_nbParticipants > 0;
         bool hasEnoughETH = address(this).balance >= MINIMUM_JACKPOT;
         upkeepNeeded = (timeHasPassed && isOpen && hasPlayers && hasEnoughETH) || s_maxJackpotReachedAndStillNoWinner;
         return (upkeepNeeded, "0x0");
@@ -125,15 +144,15 @@ contract Lottery {
     function performUpkeep(bytes memory /* performData */) external {
         (bool upkeepNeeded, ) = checkUpkeep("");
         if (!upkeepNeeded)
-            revert Raffle__UpkeepNotNeed(
+            revert Lottery__UpkeepNotNeed(
                 address(this).balance,
-                s_players.length,
-                uint256(s_raffleState)
+                s_nbParticipants,
+                uint256(s_lotteryState)
             );
 
         if (block.timestamp - s_lastTimeStamp <= i_interval)
-            revert Raffle__NotEnoughTimePassed();
-        s_raffleState = RaffleState.CALCULATING;
+            revert Lottery__NotEnoughTimePassed();
+        s_lotteryState = LotteryState.CALCULATING;
 
         // 1. Request the RNG
         // 2. Get a random number
@@ -153,25 +172,29 @@ contract Lottery {
         // Effects
         uint8[][2] memory numbersAndStars;
         for (uint8 i = 0; i < 2; i++) {
-            uint8 len = i ? 2 : 5;
+            uint8 len = (i == 1) ? 2 : 5;
             for (uint8 j = 0; j < len; j++) {
-                numbersAndStars[i][j] = randomWords[i * 5 + j] % 50 + 1;
+                numbersAndStars[i][j] = uint8(randomWords[i * 5 + j] % 50) + 1;
             }
         }
-        address payable[] winners;
+        address payable[] memory winners;
         if (address(this).balance < MAXIIMUM_JACKPOT)
-            winners = pickWinnerBeforeMax();
+            winners = pickWinnerBeforeMaxAndFiveDraws(numbersAndStars);
         else{
             if(s_numberOfDrawsSinceMaxJackpotReached == 0)
                 s_maxJackpotReachedAndStillNoWinner = true;
-            if (s_numberOfDrawsSinceMaxJackpotReached < 5) {
+            if (s_numberOfDrawsSinceMaxJackpotReached == 5)
+                winners = pickWinnerAfterMaxAndFiveDraws(numbersAndStars);
+            else {
                 s_numberOfDrawsSinceMaxJackpotReached++;
-                return;
+                winners = pickWinnerBeforeMaxAndFiveDraws(numbersAndStars);
+                if (winners.length == 0)
+                    return;
             }
-            winners = pickWinnerAfterMax();
         }
-        s_raffleState = RaffleState.OPEN;
-        s_players = new address payable[](0);
+        s_lotteryState = LotteryState.OPEN;
+        s_playersAddress = new address payable[](0);
+        s_nbParticipants = 0;
         s_lastTimeStamp = block.timestamp;
         s_numberOfDrawsSinceMaxJackpotReached = 0;
         s_maxJackpotReachedAndStillNoWinner = false;
@@ -189,13 +212,12 @@ contract Lottery {
         }
     }
 
-    function pickWinnerAfterMax() internal returns (address payable[] winners){
-        uint256 nbParticipants = s_players.length;
-        for (uint256 i = 0; i < nbParticipants; i++) {
-            Tuple[] memory grids = s_players[i];
+    function pickWinnerBeforeMaxAndFiveDraws(uint8[][2] memory numbersAndStars) internal returns (address payable[] storage){
+        for (uint256 i = 0; i < s_nbParticipants; i++) {
+            Tuple[] memory grids = s_players[s_playersAddress[i]];
             for (uint256 j = 0; j < grids.length; j++) {
                 Tuple memory grid = grids[j];
-                uint8[5] memory numbers = grid.numbers;
+                uint8[] memory numbers = grid.numbers;
                 bool valid = true;
                 for (uint8 k = 0; k < 5; k++) {
                     if (numbers[k] != numbersAndStars[0][k]) {
@@ -204,7 +226,7 @@ contract Lottery {
                     }
                 }
                 if (valid) {
-                    uint8[2] memory stars = grid.stars;
+                    uint8[] memory stars = grid.stars;
                     for (uint8 k = 0; k < 2; k++) {
                         if (stars[k] != numbersAndStars[1][k]) {
                             valid = false;
@@ -212,64 +234,64 @@ contract Lottery {
                         }
                     }
                     if (valid) {
-                        winners.push(payable(s_players[i]));
+                        s_winners.push(s_playersAddress[i]);
                     }
                 }
             }
         }
-        return winners;
+        return s_winners;
+    }
+    function pickWinnerAfterMaxAndFiveDraws(uint8[][2] memory numbersAndStars) internal returns (address payable[] storage){
+        uint8 bestScore;
+        for (uint256 i = 0; i < s_nbParticipants; i++) {
+            Tuple[] memory grids = s_players[s_playersAddress[i]];
+            for (uint256 j = 0; j < grids.length; j++) {
+                uint8 score;
+                Tuple memory grid = grids[j];
+                uint8[] memory numbers = grid.numbers;
+                for (uint8 k = 0; k < 5; k++) {
+                    if (numbers[k] == numbersAndStars[0][k]) {
+                        score++;
+                    }
+                }
+                uint8[] memory stars = grid.stars;
+                for (uint8 k = 0; k < 2; k++) {
+                    if (stars[k] == numbersAndStars[1][k]) {
+                        score++;
+                    }
+                }
+                if (score == bestScore) {
+                    s_winners.push(s_playersAddress[i]);
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    s_winners = new address payable[](0);
+                    s_winners.push(s_playersAddress[i]);
+                }
+            }
+        }
+        return s_winners;
     }
 
-    function pickWinnerBeforeMax() internal returns (address payable[] winners){
-        uint256 nbParticipants = s_players.length;
-        for (uint256 i = 0; i < nbParticipants; i++) {
-            Tuple[] memory grids = s_players[i];
-            for (uint256 j = 0; j < grids.length; j++) {
-                Tuple memory grid = grids[j];
-                uint8[5] memory numbers = grid.numbers;
-                bool valid = true;
-                for (uint8 k = 0; k < 5; k++) {
-                    if (numbers[k] != numbersAndStars[0][k]) {
-                        valid = false;
-                        break;
-                    }
-                }
-                if (valid) {
-                    uint8[2] memory stars = grid.stars;
-                    for (uint8 k = 0; k < 2; k++) {
-                        if (stars[k] != numbersAndStars[1][k]) {
-                            valid = false;
-                            break;
-                        }
-                    }
-                    if (valid) {
-                        winners.push(payable(s_players[i]));
-                    }
-                }
-            }
-        }
-        return winners;
+    // Getters
+    function getLotteryState() external view returns (LotteryState) {
+        return s_lotteryState;
+    }
+
+    function getPlayer(
+        uint256 indexOfPlayer
+    ) external view returns (address payable) {
+        return s_playersAddress[indexOfPlayer];
+    }
+
+    function getRecentWinners() external view returns (address payable[] memory){
+        return s_recentWinners;
+    }
+    function getLengthOfPlayers() external view returns (uint256) {
+        return s_nbParticipants;
+    }
+
+    function getLastTimeStamp() external view returns (uint256) {
+        return s_lastTimeStamp;
     }
 }
-
-// Layout of Contract:
-// version
-// imports
-// errors
-// interfaces, libraries, contracts
-// Type declarations
-// State variables
-// Events
-// Modifiers
-// Functions
-
-// Layout of Functions:
-// constructor
-// receive function (if exists)
-// fallback function (if exists)
-// external
-// public
-// internal
-// private
-// internal & private view & pure functions
-// external & public view & pure functions
