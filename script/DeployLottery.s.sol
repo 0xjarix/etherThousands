@@ -30,7 +30,7 @@ contract DeployLottery is Script {
             fundSubscription.fundSubscription(vrfCoordinator, subscriptionId, link, deployerKey);
         }
         vm.startBroadcast();
-        Lottery lottery = new Lotttery(
+        Lottery lottery = new Lottery(
             vrfCoordinator,
             gasLane,
             subscriptionId,

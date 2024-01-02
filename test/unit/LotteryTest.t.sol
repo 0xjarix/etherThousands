@@ -2,20 +2,20 @@
 
 pragma solidity ^0.8.18;
 
-import {Deploylottery} from "../../script/DeployLottery.s.sol";
-import {lottery} from "../../src/Lottery.sol";
+import {DeployLottery} from "../../script/DeployLottery.s.sol";
+import {Lottery} from "../../src/Lottery.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {VRFCoordinatorV2Mock} from "../mocks/VRFCoordinatorV2Mock.sol";
 import {CreateSubscription} from "../../script/Interactions.s.sol";
-contract lotteryTest is StdCheats, Test {
+contract LotteryTest is StdCheats, Test {
     // Events
     event RequestedlotteryWinner(uint256 indexed requestId);
     event Enteredlottery(address indexed player);
     event WinnerPicked(address indexed player);
-    lottery public lottery;
+    Lottery public lottery;
     HelperConfig public helperConfig;
 
     uint256 interval;
@@ -29,7 +29,7 @@ contract lotteryTest is StdCheats, Test {
     uint256 public constant STARTING_USER_BALANCE = 10 ether;
 
     function setUp() external {
-        Deploylottery deployer = new Deploylottery();
+        DeployLottery deployer = new DeployLottery();
         (lottery, helperConfig) = deployer.run();
         (
             vrfCoordinator,
@@ -42,7 +42,7 @@ contract lotteryTest is StdCheats, Test {
     }
 
     function testlotteryInitializesInOpenState() external {
-        assert(lottery.getLotteryState() == lottery.lotteryState.OPEN);
+        assert(lottery.getLotteryState() == Lottery.LotteryState.OPEN);
     }
 
     // enterlottery
@@ -50,7 +50,7 @@ contract lotteryTest is StdCheats, Test {
         // Arrange
         vm.prank(PLAYER);
         // Act
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterLottery{value: 25 ether}();
         address playerRecorded = lottery.getPlayer(0);
         // Assert
         assert(playerRecorded == PLAYER);
@@ -60,19 +60,19 @@ contract lotteryTest is StdCheats, Test {
         vm.prank(PLAYER);
         vm.expectEmit(true, false, false, false, address(lottery));
         emit Enteredlottery(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterLottery{value: 25 ether}();
     }
 
     function testCantEnterWhenlotteryIsCalculating() public {
         // Arrange
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterlottery{value: 25 ether}();
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
         lottery.performUpkeep("");
-        vm.expectRevert(lottery.lottery__lotteryNotOpen.selector);
+        vm.expectRevert(lottery.Lottery__LotteryNotOpen.selector);
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterlottery{value: 25 ether}();
     }
 
     function testCheckUpKeepReturnsFalseIfItHasNoBalance() public {
@@ -90,11 +90,11 @@ contract lotteryTest is StdCheats, Test {
     function testCheckUpKeepReturnsFalseIflotteryNotOpen() public {
         // Arrange
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterLottery{value: 25 ether}();
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
         lottery.performUpkeep("");
-        lottery.lotteryState lotteryState = lottery.getlotteryState();
+        Lottery.LotteryState lotteryState = lottery.getLotteryState();
         // Act
         (bool upkeepNeeded, ) = lottery.checkUpkeep("");
         // Assert
@@ -105,7 +105,7 @@ contract lotteryTest is StdCheats, Test {
     function testCheckUpKeepReturnsFalseIfEnoughTimeHasntPassed() public {
        // Arrange
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterLottery{value: 25 ether}();
         vm.warp(block.timestamp + interval - 1);
         vm.roll(block.number + 1);
 
@@ -118,7 +118,7 @@ contract lotteryTest is StdCheats, Test {
     function testCheckUpKeepReturnsTrueWhenParametersAreGood() public {
         // Arrange
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterLottery{value: 25 ether}();
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
 
@@ -132,7 +132,7 @@ contract lotteryTest is StdCheats, Test {
     function testPerformUpKeepCanOnlyRunIfCheckUpKeepIsTrue() public {
         // Arrange
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterLottery{value: 25 ether}();
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
 
@@ -144,17 +144,17 @@ contract lotteryTest is StdCheats, Test {
         // Arrange
         uint256 currentBalance = 0;
         uint256 numPlayers = 0;
-        lottery.lotteryState lotteryState = lottery.getlotteryState();
+        Lottery.LotteryState lotteryState = lottery.getlotteryState();
 
         // Act/Assert
-        vm.expectRevert(abi.encodeWithSelector(lottery.lottery__UpkeepNotNeed.selector, currentBalance, numPlayers, lotteryState));
+        vm.expectRevert(abi.encodeWithSelector(lottery.Lottery__UpkeepNotNeed.selector, currentBalance, numPlayers, lotteryState));
         lottery.performUpkeep("");
     }
     // what if I need to test using the output of an event
 
     modifier lotteryEnteredandTimePassed {
         vm.prank(PLAYER);
-        lottery.enterlottery{value: entranceFee}();
+        lottery.enterlottery{value: 25 ether}();
         vm.warp(block.timestamp + interval + 1);
         vm.roll(block.number + 1);
         _;
@@ -168,7 +168,7 @@ contract lotteryTest is StdCheats, Test {
         lottery.performUpkeep("");
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bytes32 requestId = entries[1].topics[1];
-        lottery.lotteryState lotteryState = lottery.getlotteryState();
+        Lottery.LotteryState lotteryState = lottery.getLotteryState();
         // Assert
         assert(uint256(requestId) > 0);
         assert(uint256(lotteryState) == 1);
@@ -192,9 +192,9 @@ contract lotteryTest is StdCheats, Test {
         uint256 additionalEntrants = 5;
         for (uint256 i = startingIndex; i < startingIndex + additionalEntrants; i++) {
             hoax(address(uint160(i)), 1 ether);
-            lottery.enterlottery{value: entranceFee}();
+            lottery.enterlottery{value: 25 ether}();
         }
-        uint256 prize = entranceFee * (additionalEntrants + 1);
+        uint256 prize = 25 ether * (additionalEntrants + 1);
         vm.recordLogs();
         lottery.performUpkeep("");
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -206,6 +206,6 @@ contract lotteryTest is StdCheats, Test {
         assert(lottery.getRecentWinner() != address(0));
         assert(lottery.getLengthOfPlayers() == 0);
         assert(lottery.getLastTimeStamp() > previousTimestamp);
-        assert(lottery.getRecentWinner().balance == STARTING_USER_BALANCE + prize - entranceFee);
+        assert(lottery.getRecentWinner().balance == STARTING_USER_BALANCE + prize - 25 ether);
     }
 }

@@ -32,8 +32,8 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     uint256 public constant MAXIIMUM_JACKPOT = 250000 ether;
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 7;
-    uint8 private constant MULTI_GRID_ENTRANCE_FEE = 50;
-    uint8 private constant SIMPLE_GRID_ENTRANCE_FEE = 25;
+    uint256 private constant MULTI_GRID_ENTRANCE_FEE = 50 ether;
+    uint256 private constant SIMPLE_GRID_ENTRANCE_FEE = 25 ether;
 
     // variables
     // @dev Duration of lottery in seconds
