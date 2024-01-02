@@ -10,7 +10,7 @@
 # How is the jackpot set?
 
 - The minimum jackpot is set at 17M euros in our case it will be 17K ether
-- As long as there is no winner the jackpot gets bigger after every raffle till it reaches 250K ether(the ceiling)
+- As long as there is no winner the jackpot gets bigger after every lottery till it reaches 250K ether(the ceiling)
 
 # How to participate in a lottery?
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.23;
 
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
@@ -11,12 +11,12 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     error Lottery__LotteryNotOpen();
     error Lottery__PlayerInputWrongGridFormat();
     error Lottery__TransferFailed();
-    error Lottery__NotEnoughEthSent();
+    error Lottery__BadAmountEthSent();
     error Lottery__NotEnoughTimePassed();
     error Lottery__UpkeepNotNeed(
         uint256 balance,
         uint256 playersLength,
-        uint256 raffleState
+        uint256 lotteryState
     );
     // enum
     enum LotteryState { OPEN, CALCULATING }
@@ -32,6 +32,8 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     uint256 public constant MAXIIMUM_JACKPOT = 250000 ether;
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 7;
+    uint8 private constant MULTI_GRID_ENTRANCE_FEE = 50;
+    uint8 private constant SIMPLE_GRID_ENTRANCE_FEE = 25;
 
     // variables
     // @dev Duration of lottery in seconds
@@ -74,12 +76,12 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
         if (s_lotteryState != LotteryState.OPEN)
             revert Lottery__LotteryNotOpen();
         if (gridState) {
-            if (msg.value < 50)
-                revert Lottery__NotEnoughEthSent();
+            if (msg.value != MULTI_GRID_ENTRANCE_FEE)
+                revert Lottery__BadAmountEthSent();
         }
         else {
-            if (msg.value < 25)
-                revert Lottery__NotEnoughEthSent();
+            if (msg.value != SIMPLE_GRID_ENTRANCE_FEE)
+                revert Lottery__BadAmountEthSent();
         }
 
         if (numbersAndStars.length == 0) 
@@ -118,8 +120,8 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     /**
      * @dev This function is called by the Chainlink Automation nodes to see if it's time to perform an upkeep.
      * The following should be true for this to return true:
-     * 1. The time interval has passed between raffle runs
-     * 2. The raffle must be in the OPEN state
+     * 1. The time interval has passed between lottery runs
+     * 2. The lottery must be in the OPEN state
      * 3. The contract has ETH (aka, players) >= 17K ETH
      * 4. (Implicit) The subscription is funded with LINK
      */
